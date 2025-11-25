@@ -28,16 +28,14 @@ if not st.session_state.logged_in:
     st.stop()
 
 # ===============================
-# 登录后界面状态初始化
+# 登录后界面（非刷题状态）  
 # ===============================
 if "quiz_started" not in st.session_state:
     st.session_state.quiz_started = False
 if "mode_selected" not in st.session_state:
     st.session_state.mode_selected = False
 
-# ===============================
-# 登录后主界面
-# ===============================
+# 如果已经进入刷题，则跳过所有欢迎界面
 if not st.session_state.quiz_started:
 
     st.title("🔒 Multifunctional Website")
@@ -66,14 +64,20 @@ if not st.session_state.quiz_started:
 
             st.success("文件上传成功！")
 
-            # 自动识别列名
+            # 自动识别
             question_type_col = None
             question_col = None
             answer_col = None
             option_cols = []
+            bank_col = None  # 新增题库列识别
 
             for col in df.columns:
                 col_lower = str(col).lower()
+
+                # 题库列识别（关键词：库、题库、章节、来源、分类）
+                if any(key in col_lower for key in ["库", "题库", "章节", "来源", "分类"]):
+                    bank_col = col
+
                 if "题型" in col_lower:
                     question_type_col = col
                 elif "题目" in col_lower:
@@ -84,12 +88,14 @@ if not st.session_state.quiz_started:
                     option_cols.append(col)
 
             st.write("🧭 自动识别字段：")
+            st.write(f"- 题库列：{bank_col}")
             st.write(f"- 题型列：{question_type_col}")
             st.write(f"- 题目列：{question_col}")
             st.write(f"- 答案列：{answer_col}")
             st.write(f"- 选项列：{option_cols}")
 
             if st.button("字段无误，继续 →"):
+                st.session_state.bank_col = bank_col    # 题库列存储
                 st.session_state.question_col = question_col
                 st.session_state.answer_col = answer_col
                 st.session_state.question_type_col = question_type_col
@@ -101,39 +107,32 @@ if not st.session_state.quiz_started:
         if st.session_state.mode_selected and not st.session_state.quiz_started:
             st.subheader("📌 请选择刷题模式")
 
-            mode = st.radio("选择模式：", ["顺序刷题", "随机刷题（整套洗牌）"])
+            mode = st.radio("选择模式：", ["顺序刷题", "随机刷题"])
 
             if st.button("开始刷题 🚀"):
                 st.session_state.order_mode = mode
                 st.session_state.quiz_started = True
 
-                total = len(st.session_state.df_cache)
-
                 if mode == "顺序刷题":
                     st.session_state.quiz_index = 0
-
                 else:
-                    # 随机洗牌模式 B
-                    st.session_state.random_order = list(range(total))
-                    random.shuffle(st.session_state.random_order)
-                    st.session_state.random_pos = 0
-                    st.session_state.quiz_index = st.session_state.random_order[0]
+                    st.session_state.quiz_index = random.randint(
+                        0, len(st.session_state.df_cache) - 1
+                    )
 
                 st.rerun()
 
     if feature == "🚀 其他功能（待更新）":
         st.info("敬请期待…")
 
-    # 退出登录
     if st.button("退出登录"):
         st.session_state.logged_in = False
         st.rerun()
 
     st.stop()
 
-
 # ===============================
-#          纯净刷题界面
+#             纯净刷题模式
 # ===============================
 
 df = st.session_state.df_cache
@@ -141,8 +140,11 @@ idx = st.session_state.quiz_index
 total = len(df)
 row = df.iloc[idx]
 
-# 当前题目编号
 st.write(f"### 🎯 题目 {idx + 1}/{total}")
+
+# 显示题库列
+if st.session_state.bank_col:
+    st.write(f"**题库：{row[st.session_state.bank_col]}**")
 
 # 题型
 if st.session_state.question_type_col:
@@ -151,19 +153,18 @@ if st.session_state.question_type_col:
 # 题干
 st.write(f"**{row[st.session_state.question_col]}**")
 
-# --- 用户输入答案 ---
+# --- 用户作答输入部分 ---
 option_cols = st.session_state.option_cols
+if "user_answer" not in st.session_state:
+    st.session_state.user_answer = ""
 
 if option_cols:
-    # 不默认选第一项："请选择" 占位项
-    options_display = ["请选择"] + option_cols
-    user_choose = st.radio(
+    user_answer = st.radio(
         "请选择一个选项：",
-        options_display,
-        format_func=lambda c: " " if c == "请选择" else f"{c}. {row[c]}",
+        option_cols,
+        format_func=lambda c: f"{c}. {row[c]}",
         key=f"radio_{idx}"
     )
-    user_answer = "" if user_choose == "请选择" else user_choose
 else:
     user_answer = st.text_input("请输入你的答案：", key=f"input_{idx}")
 
@@ -173,13 +174,12 @@ if st.button("提交答案 ✔"):
     st.session_state.show_result = True
 
 # ===============================
-# 显示正确性 + 上一题/下一题
+# 判断 + 上一题 / 下一题
 # ===============================
-if st.session_state.get("show_result", False):
+if "show_result" in st.session_state and st.session_state.show_result:
 
-    # 支持多选题，例如 ACD
-    correct = "".join(sorted(str(row[st.session_state.answer_col]).strip().upper()))
-    your_ans = "".join(sorted(str(st.session_state.user_answer).strip().upper()))
+    correct = str(row[st.session_state.answer_col]).strip().upper()
+    your_ans = str(st.session_state.user_answer).strip().upper()
 
     if your_ans == correct:
         st.success("🎉 回答正确！")
@@ -190,55 +190,42 @@ if st.session_state.get("show_result", False):
 
     with col_prev:
         if st.button("⬅ 上一题"):
-            if st.session_state.order_mode == "顺序刷题":
-                st.session_state.quiz_index = max(0, idx - 1)
-            else:
-                st.session_state.random_pos = max(0, st.session_state.random_pos - 1)
-                st.session_state.quiz_index = st.session_state.random_order[
-                    st.session_state.random_pos
-                ]
+            st.session_state.quiz_index = max(0, idx - 1)
             st.session_state.show_result = False
             st.rerun()
 
     with col_next:
         if st.button("下一题 ➡"):
-            if st.session_state.order_mode == "顺序刷题":
-                if idx + 1 < total:
-                    st.session_state.quiz_index = idx + 1
+            if idx + 1 < total:
+                st.session_state.quiz_index = idx + 1
             else:
-                if st.session_state.random_pos + 1 < total:
-                    st.session_state.random_pos += 1
-                    st.session_state.quiz_index = st.session_state.random_order[
-                        st.session_state.random_pos
-                    ]
-                else:
-                    st.success("🎉 已经是最后一题啦！")
+                st.success("🎉 已经是最后一题啦！")
             st.session_state.show_result = False
             st.rerun()
 
+# ===============================
+# 额外功能
+# ===============================
 
-# ===============================
-# 返回/重置/退出
-# ===============================
 st.markdown("---")
 st.subheader("⚙️ 操作")
 
 col1, col2, col3 = st.columns(3)
 
-# 返回功能选择
 with col1:
     if st.button("返回功能选择 🔙"):
         st.session_state.quiz_started = False
         st.session_state.mode_selected = False
         st.rerun()
 
-# 重新上传题库
 with col2:
     if st.button("重新上传题库 📁"):
-        st.session_state.clear()
+        if "df_cache" in st.session_state:
+            del st.session_state.df_cache
+        st.session_state.quiz_started = False
+        st.session_state.mode_selected = False
         st.rerun()
 
-# 退出系统
 with col3:
     if st.button("退出系统 🚪"):
         st.session_state.clear()
